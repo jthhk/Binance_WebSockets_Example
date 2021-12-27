@@ -160,17 +160,18 @@ def on_message(ws, message):
         pprint.pprint(event)
 
 
-    if MarketData.loc[MarketData['symbol'] == symbol, ['bookTicker']] and MarketData.loc[MarketData['symbol'] == symbol, ['aggTrade']] and MarketData.loc[MarketData['symbol'] == symbol, ['kline']]:
+    #if MarketData.loc[MarketData['symbol'] == symbol, ['bookTicker']] == 1  and MarketData.loc[MarketData['symbol'] == symbol, ['aggTrade']] == 1 and MarketData.loc[MarketData['symbol'] == symbol, ['kline']] == 1:
         #do your strategy check
-        print ('All Fields updated for :' + symbol)        
-        print ('check numbers and create buy signal') 
-        print (MarketData)        
+        #print ('All Fields updated for :' + symbol)        
+    print ('check numbers and create buy signal') 
+    print (MarketData)        
 
         #Reset update flags 
-        MarketData.loc[MarketData['symbol'] == symbol, ['bookTicker']] = 0
-        MarketData.loc[MarketData['symbol'] == symbol, ['aggTrade']] = 0
-        MarketData.loc[MarketData['symbol'] == symbol, ['kline']] = 0 
-    
+        #MarketData.loc[MarketData['symbol'] == symbol, ['bookTicker']] = 0
+        #MarketData.loc[MarketData['symbol'] == symbol, ['aggTrade']] = 0
+        #MarketData.loc[MarketData['symbol'] == symbol, ['kline']] = 0 
+    #else:
+        #print("updates:" + MarketData.loc[MarketData['symbol'] == symbol, ['bookTicker']] + ":" +  MarketData.loc[MarketData['symbol'] == symbol, ['aggTrade']] + ":" + MarketData.loc[MarketData['symbol'] == symbol, ['kline']])
  
 
 ########################################################################
@@ -193,7 +194,7 @@ def do_work():
     
     SOCKET_URL= "wss://stream.binance.com:9443/ws/"
     
-    current_ticker_list = ["ethbtc@bookTicker","bnbbtc@bookTicker","ethbtc@kline_1m","ethbtc@kline_5m","ethbtc@aggTrade","ethbtc@aggTrade"]
+    current_ticker_list = ["ethbtc@bookTicker","bnbbtc@bookTicker","bnbbtc@kline_1m","ethbtc@kline_5m","ethbtc@aggTrade","bnbbtc@aggTrade"]
     SOCKET = SOCKET_URL + '/'.join(current_ticker_list)
     print(SOCKET)
     ticker_list = websocket.WebSocketApp(SOCKET, on_open=on_open, on_close=on_close, on_message=on_message)
