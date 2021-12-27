@@ -1,13 +1,8 @@
-import re
-import aiohttp
-import asyncio
 import time
 from datetime import datetime
 from helpers.parameters import parse_args, load_config
 import pandas as pd
 import pandas_ta as ta
-import ccxt
-import requests
 import sys
 import os
 import websocket, json,pprint
@@ -117,7 +112,9 @@ def on_close(ws):
 
 def on_message(ws, message):
 
-    print("Received message.")
+    global MarketData
+
+    #print("Received message.")
     event = json.loads(message)
     #pprint.pprint(event)
     
@@ -127,62 +124,81 @@ def on_message(ws, message):
         eventtype = "BookTicker"
     
     if eventtype == "kline":
-        print("kline update")
         candle=event['k']
+        #Need to check Candle is closed 
         is_candle_closed = candle['x']
         #if is_candle_closed:
+        #print("kline update")
         symbol = candle["s"]
-        Interval = candle["i"]
-        highest = candle['h'] 
-        lowest = candle['l']
-        open = candle['o']
-        close = candle['c']
-            
+        MarketData.loc[MarketData['symbol'] == candle["s"], ['interval']] = candle["i"]
+        MarketData.loc[MarketData['symbol'] == candle["s"], ['high']] = candle["h"]
+        MarketData.loc[MarketData['symbol'] == candle["s"], ['low']] = candle["l"]
+        MarketData.loc[MarketData['symbol'] == candle["s"], ['open']] =  candle["o"]
+        MarketData.loc[MarketData['symbol'] == candle["s"], ['close']] =  candle["c"]
+        MarketData.loc[MarketData['symbol'] == candle["s"], ['kline']] =  1
+        
     elif eventtype == "aggTrade":
-        print("aggTrade update")
-        is_market_maker = event['x']
+        #print("aggTrade update")
+        #is_market_maker = event['x']
         symbol = event["s"]
-        LastPx = event["p"]
-        LastQty = event["q"]
+        MarketData.loc[MarketData['symbol'] == event["s"], ['LastPx']] =  event["p"]
+        MarketData.loc[MarketData['symbol'] == event["s"], ['LastQty']] =  event["q"]
+        MarketData.loc[MarketData['symbol'] == event["s"], ['aggTrade']] =  1
         #side = "B" 
         #if is_market_maker:
         #    side = "S" 
-    else:
-        print("bookTicker update")
+    elif eventtype == "BookTicker":
+        #print("bookTicker update")
+        #data = {'BBPx' : event["b"],  'BBQty' : event["B"], 'BAPx' : event["a"], 'BAQty' : event["A"], 'bookTicker' : 1 }
         symbol = event["s"]
-        BBPx = event["b"]
-        BBQty = event["B"]
-        BAPx = event["a"]
-        BAQty = event["A"]
-        
+        MarketData.loc[MarketData['symbol'] == event["s"], ['BBPx']] =  event["b"]
+        MarketData.loc[MarketData['symbol'] == event["s"], ['BBQty']] =  event["B"]
+        MarketData.loc[MarketData['symbol'] == event["s"], ['BAPx']] =  event["a"]
+        MarketData.loc[MarketData['symbol'] == event["s"], ['BAQty']] =  event["A"]
+        MarketData.loc[MarketData['symbol'] == event["s"], ['bookTicker']] =  1
+    elif eventtype == "error":
+        pprint.pprint(event)
+
+
+    if MarketData.loc[MarketData['symbol'] == symbol, ['bookTicker']] and MarketData.loc[MarketData['symbol'] == symbol, ['aggTrade']] and MarketData.loc[MarketData['symbol'] == symbol, ['kline']]:
+        #do your strategy check
+        print ('All Fields updated for :' + symbol)        
+        print ('check numbers and create buy signal') 
+        print (MarketData)        
+
+        #Reset update flags 
+        MarketData.loc[MarketData['symbol'] == symbol, ['bookTicker']] = 0
+        MarketData.loc[MarketData['symbol'] == symbol, ['aggTrade']] = 0
+        MarketData.loc[MarketData['symbol'] == symbol, ['kline']] = 0 
+    
+ 
 
 ########################################################################
 
 def do_work():
-    #Define watch list  
+    
+    global MarketData
+
+    
+    MarketData = pd.DataFrame(columns=['symbol', 'open', 'high', 'low', 'close', 'interval','LastPx','LastQty','BBPx','BBQty','BAPx','BAQty','kline','aggTrade','bookTicker','updated'])
+    MarketData['symbol']=MarketData.index
+    MarketData = MarketData.reset_index(drop=True)
+
+    #Define watch list - Should be a loop hardcode for now  
     #tickers = [line.strip() for line in open(TICKERS_LIST)]
+    data =  {'symbol': 'ETHBTC'}
+    MarketData= MarketData.append(data,ignore_index=True)
+    data =  {'symbol': 'BNBBTC'}
+    MarketData= MarketData.append(data,ignore_index=True)
+    
     SOCKET_URL= "wss://stream.binance.com:9443/ws/"
     
-    current_ticker_list = ["ethbtc@bookTicker","bnbbtc@bookTicker"]
+    current_ticker_list = ["ethbtc@bookTicker","bnbbtc@bookTicker","ethbtc@kline_1m","ethbtc@kline_5m","ethbtc@aggTrade","ethbtc@aggTrade"]
     SOCKET = SOCKET_URL + '/'.join(current_ticker_list)
     print(SOCKET)
     ticker_list = websocket.WebSocketApp(SOCKET, on_open=on_open, on_close=on_close, on_message=on_message)
     print("CTRL+C to cxl and move to next worker")
     ticker_list.run_forever()
-
-    current_potential_list = ["ethbtc@kline_1m","ethbtc@kline_5m"]
-    SOCKET = SOCKET_URL + '/'.join(current_potential_list)
-    print(SOCKET)
-    potential_list = websocket.WebSocketApp(SOCKET, on_open=on_open, on_close=on_close, on_message=on_message)
-    print("CTRL+C to cxl and move to next worker")
-    potential_list.run_forever()
-    
-    current_trade_list = ["ethbtc@aggTrade","ethbtc@aggTrade"]
-    SOCKET = SOCKET_URL + '/'.join(current_trade_list)
-    print(SOCKET)
-    trade_list = websocket.WebSocketApp(SOCKET, on_open=on_open, on_close=on_close, on_message=on_message)
-    print("CTRL+C to cxl and close")
-    trade_list.run_forever()
 
 
 if __name__ == '__main__':
