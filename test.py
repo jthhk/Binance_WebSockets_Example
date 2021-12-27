@@ -211,6 +211,8 @@ def on_message(ws, message):
         last_price = float(MarketData.loc[Index]['LastPx'])
         high_price = float(MarketData.loc[Index]['high'])
         low_price = float(MarketData.loc[Index]['low'])
+        bid_price = float(MarketData.loc[Index]['BBPx'])
+        ask_price = float(MarketData.loc[Index]['BAPx'])
         range = high_price - low_price
         potential = (low_price / high_price) * 100
         buy_above = low_price * 1.00
@@ -225,6 +227,8 @@ def on_message(ws, message):
 
         print(f'\nCoin:            {symbol}\n'
             f'Price:            ${last_price:.3f}\n'
+            f'Bid:            ${bid_price:.3f}\n'
+            f'Ask:            ${ask_price:.3f}\n'
             f'High:             ${high_price:.3f}\n'
             f'Low:             ${low_price:.3f}\n'
             f'Day Max Range:    ${range:.3f}\n'
