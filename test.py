@@ -8,6 +8,8 @@ import os
 import websocket, json,pprint
 from binance.client import Client
 from binance.exceptions import BinanceAPIException, BinanceOrderException
+import ccxt
+
 import logging
 logger = logging.getLogger('websocket')
 logger.setLevel(logging.INFO)
@@ -223,6 +225,7 @@ def on_message(ws, message):
         safe_potential = potential - 12
         current_potential = ((high_price / last_price) * 100) - 100
         movement = (low_price / range)
+        macd1m = MarketData.loc[Index, 'open']
         print(f'{symbol} {current_potential:.2f}% M:{movement:.2f}%')
 
         print(f'\nCoin:            {symbol}\n'
@@ -239,25 +242,54 @@ def on_message(ws, message):
             f'Buy above:        ${buy_above:.3f}\n'
             f'Buy Below:        ${buy_below:.3f}\n'
             f'Potential profit: {TextColors.TURQUOISE}{current_potential:.0f}%{TextColors.DEFAULT}'
-            f'Max Profit {max_potential:.2f}%\n'
-            f'Min Profit {min_potential:.2f}%\n'
+            f'Max Profit:       {max_potential:.2f}%\n'
+            f'Min Profit:       {min_potential:.2f}%\n'
+            f'Last Update:      {datetime.now()}\n'
             )
         print (MarketData)            
+        print ("-------MACD--------")
+        macd5m = MarketPriceFrames.loc[Index, '5m']
+        macd15m = MarketPriceFrames.loc[Index, '15m']
+        macd4h = MarketPriceFrames.loc[Index, '4h']
+        macd1d = MarketPriceFrames.loc[Index, '1d']
+        print(f'\nCoin:            {symbol}\n'
+            f'macd1m:             {macd1m}\n'
+            f'macd5m:             {macd5m}\n'
+            f'macd15m:            {macd15m}\n'
+            f'macd4h:             {macd4h}\n'
+            f'macd1d:             {macd1d}\n'
+             )
+        print (MarketPriceFrames)            
 
         #Reset update flags 
         MarketData.loc[Index, ['bookTicker']] = False
         MarketData.loc[Index, ['aggTrade']] = False
         MarketData.loc[Index, ['kline']] = False
-
+        MarketData.loc[Index, ['updated']] = datetime.now()
         if DEBUG : print (MarketData)            
         
  
 
 ########################################################################
 
+def get_data_frame(symbol):
+
+    global MarketPriceFrames
+
+    exchange = ccxt.binance()
+    timeframes = ['5m','15m','15m', '4h', '1d']
+    for item in timeframes:	
+        macd = exchange.fetch_ohlcv(symbol, timeframe=item, limit=36)
+        df1  = pd.DataFrame(macd, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
+        macd = df1.ta.macd(fast=12, slow=26)
+        Index = MarketPriceFrames.loc[MarketPriceFrames['symbol'] == symbol].index.item()
+        MarketPriceFrames.loc[Index, item] =  macd.iloc[35][1]
+        MarketPriceFrames.loc[Index, ['updated']] = datetime.now()
+
+
 def do_work():
     
-    global MarketData
+    global MarketData, MarketPriceFrames
 
     SOCKET_URL= "wss://stream.binance.com:9443/ws/"
     SOCKET_LIST = ["coin@bookTicker","coin@kline_1m","coin@aggTrade"]
@@ -267,20 +299,29 @@ def do_work():
     MarketData = pd.DataFrame(columns=['symbol', 'open', 'high', 'low', 'close', 'interval','LastPx','LastQty','BBPx','BBQty','BAPx','BAQty','kline','aggTrade','bookTicker','updated'])
     MarketData['symbol']=MarketData.index
     MarketData = MarketData.reset_index(drop=True)
+    
+    #Create a dataframe to hold the latest coin data from multiple requests 
+    MarketPriceFrames = pd.DataFrame(columns=['symbol', '5m', '15m', '4h', '1d','updated'])
+    MarketPriceFrames['symbol']=MarketPriceFrames.index
+    MarketPriceFrames = MarketPriceFrames.reset_index(drop=True)
 
     #-------------------------------------------------------------------------------
     #Define watch list - Should be a loop hardcode for now  
     tickers = [line.strip() for line in open(TICKERS_LIST)]
     for item in tickers:
+        #Create Dataframes with coins
         coin = item + PAIR_WITH
         data =  {'symbol': coin}
         MarketData= MarketData.append(data,ignore_index=True)
+        MarketPriceFrames= MarketPriceFrames.append(data,ignore_index=True)
+        get_data_frame(coin)        
         coinlist= [sub.replace('coin', coin.lower()) for sub in SOCKET_LIST]
         current_ticker_list.extend(coinlist)
 
     if DEBUG:
         print (MarketData) 
         print (current_ticker_list) 
+        print (MarketPriceFrames) 
 
     #-------------------------------------------------------------------------------
     SOCKET = SOCKET_URL + '/'.join(current_ticker_list)
