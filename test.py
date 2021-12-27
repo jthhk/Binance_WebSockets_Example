@@ -8,6 +8,11 @@ import os
 import websocket, json,pprint
 from binance.client import Client
 from binance.exceptions import BinanceAPIException, BinanceOrderException
+import logging
+logger = logging.getLogger('websocket')
+logger.setLevel(logging.INFO)
+logger.addHandler(logging.StreamHandler())
+# websocket._logging._logger.level = -99
 
 # Load creds modules
 from helpers.handle_creds import (
@@ -30,6 +35,7 @@ PAIR_WITH = parsed_config['trading_options']['PAIR_WITH']
 EX_PAIRS = parsed_config['trading_options']['FIATS']
 TEST_MODE = parsed_config['script_options']['TEST_MODE']
 TAKE_PROFIT = parsed_config['trading_options']['TAKE_PROFIT']
+DEBUG = parsed_config['script_options']['DEBUG']
 DISCORD_WEBHOOK = load_discord_creds(parsed_creds)
 
 # Load creds for correct environment
@@ -106,72 +112,141 @@ def msg_discord(msg):
 # Websocket functions, to inform about current status
 def on_open(ws):
     print("Opened connection.")
+    #print (ws.sock.connected)
 
 def on_close(ws):
     print("Closed connection.")
 
+def on_error(ws,error):
+    #getting all the error information
+    print ('On_Error')
+    print (os.sys.exc_info()[0:2])
+    print ('Error info: %s' %(error))
+    print(error)
+    TriggerRestart = True
+
+    if ( "timed" in str(error) ):
+        print ( "WebSocket Connenction is getting timed out: Please check the netwrork connection")
+    elif( "getaddrinfo" in str(error) ):
+        print ( "Network connection is lost: Cannot connect to the host. Please check the network connection ")
+    elif( "unreachable host" in str(error) ):
+        print ( "Cannot establish connetion with B6-Web: Network connection is lost or host is not running")
+    else:
+        TriggerRestart = False    
+
+    if TriggerRestart:
+        #for recreatng the WebSocket connection 
+        if (ws is not None):
+            #ws.close()
+            ws.on_message = None
+            ws.on_open = None
+            ws.close = None    
+            print ('deleting ws')
+            del ws
+
+        #Forcebly set ws to None            
+        ws = None
+
+        count = 0
+        print ( "Websocket Client trying  to re-connect" ) 
+        do_work()
+
+
+    
 def on_message(ws, message):
 
     global MarketData
 
-    #print("Received message.")
+    if DEBUG : print("Received message.")
     event = json.loads(message)
-    #pprint.pprint(event)
     
     try:
         eventtype = event['e'] 
     except:
         eventtype = "BookTicker"
     
+    if DEBUG : print(f"{eventtype} event")
+
     if eventtype == "kline":
         candle=event['k']
         #Need to check Candle is closed 
         is_candle_closed = candle['x']
-        #if is_candle_closed:
-        #print("kline update")
         symbol = candle["s"]
-        MarketData.loc[MarketData['symbol'] == candle["s"], ['interval']] = candle["i"]
-        MarketData.loc[MarketData['symbol'] == candle["s"], ['high']] = candle["h"]
-        MarketData.loc[MarketData['symbol'] == candle["s"], ['low']] = candle["l"]
-        MarketData.loc[MarketData['symbol'] == candle["s"], ['open']] =  candle["o"]
-        MarketData.loc[MarketData['symbol'] == candle["s"], ['close']] =  candle["c"]
-        MarketData.loc[MarketData['symbol'] == candle["s"], ['kline']] =  1
+        Index = MarketData.loc[MarketData['symbol'] == symbol].index.item()
+        if is_candle_closed:
+            MarketData.loc[Index, ['interval']] = candle["i"]
+            MarketData.loc[Index, ['high']] = candle["h"]
+            MarketData.loc[Index, ['low']] = candle["l"]
+            MarketData.loc[Index, ['open']] =  candle["o"]
+            MarketData.loc[Index, ['close']] =  candle["c"]
+            MarketData.loc[Index, ['kline']] =  True
         
     elif eventtype == "aggTrade":
-        #print("aggTrade update")
         #is_market_maker = event['x']
         symbol = event["s"]
-        MarketData.loc[MarketData['symbol'] == event["s"], ['LastPx']] =  event["p"]
-        MarketData.loc[MarketData['symbol'] == event["s"], ['LastQty']] =  event["q"]
-        MarketData.loc[MarketData['symbol'] == event["s"], ['aggTrade']] =  1
+        Index = MarketData.loc[MarketData['symbol'] == symbol].index.item()
+        MarketData.loc[Index, ['LastPx']] =  event["p"]
+        MarketData.loc[Index, ['LastQty']] =  event["q"]
+        MarketData.loc[Index, ['aggTrade']] =  True
         #side = "B" 
         #if is_market_maker:
         #    side = "S" 
     elif eventtype == "BookTicker":
-        #print("bookTicker update")
         #data = {'BBPx' : event["b"],  'BBQty' : event["B"], 'BAPx' : event["a"], 'BAQty' : event["A"], 'bookTicker' : 1 }
         symbol = event["s"]
-        MarketData.loc[MarketData['symbol'] == event["s"], ['BBPx']] =  event["b"]
-        MarketData.loc[MarketData['symbol'] == event["s"], ['BBQty']] =  event["B"]
-        MarketData.loc[MarketData['symbol'] == event["s"], ['BAPx']] =  event["a"]
-        MarketData.loc[MarketData['symbol'] == event["s"], ['BAQty']] =  event["A"]
-        MarketData.loc[MarketData['symbol'] == event["s"], ['bookTicker']] =  1
+        Index = MarketData.loc[MarketData['symbol'] == symbol].index.item()
+        MarketData.loc[Index, ['BBPx']] =  event["b"]
+        MarketData.loc[Index, ['BBQty']] =  event["B"]
+        MarketData.loc[Index, ['BAPx']] =  event["a"]
+        MarketData.loc[Index, ['BAQty']] =  event["A"]
+        MarketData.loc[Index, ['bookTicker']] =  True
     elif eventtype == "error":
         pprint.pprint(event)
 
 
-    #if MarketData.loc[MarketData['symbol'] == symbol, ['bookTicker']] == 1  and MarketData.loc[MarketData['symbol'] == symbol, ['aggTrade']] == 1 and MarketData.loc[MarketData['symbol'] == symbol, ['kline']] == 1:
+    if MarketData.loc[Index]['bookTicker']  and MarketData.loc[Index]['aggTrade'] and MarketData.loc[Index]['kline']:
         #do your strategy check
-        #print ('All Fields updated for :' + symbol)        
-    print ('check numbers and create buy signal') 
-    print (MarketData)        
+        #only trigegrs when we get a full set of data eg int he end of the candle/kline 
+
+        last_price = float(MarketData.loc[Index]['LastPx'])
+        high_price = float(MarketData.loc[Index]['high'])
+        low_price = float(MarketData.loc[Index]['low'])
+        range = high_price - low_price
+        potential = (low_price / high_price) * 100
+        buy_above = low_price * 1.00
+        buy_below = high_price - (range * percent_below)
+        current_range = high_price - last_price
+        max_potential = potential * 0.98
+        min_potential = potential * 0.6
+        safe_potential = potential - 12
+        current_potential = ((high_price / last_price) * 100) - 100
+        movement = (low_price / range)
+        print(f'{symbol} {current_potential:.2f}% M:{movement:.2f}%')
+
+        print(f'\nCoin:            {symbol}\n'
+            f'Price:            ${last_price:.3f}\n'
+            f'High:             ${high_price:.3f}\n'
+            f'Low:             ${low_price:.3f}\n'
+            f'Day Max Range:    ${range:.3f}\n'
+            f'Current Range:    ${current_range:.3f} \n'
+            f'Daily Range:      ${range:.3f}\n'
+            f'Current Range     ${current_range:.3f} \n'
+            f'Potential profit before safety: {potential:.0f}%\n'
+            f'Buy above:        ${buy_above:.3f}\n'
+            f'Buy Below:        ${buy_below:.3f}\n'
+            f'Potential profit: {TextColors.TURQUOISE}{current_potential:.0f}%{TextColors.DEFAULT}'
+            f'Max Profit {max_potential:.2f}%\n'
+            f'Min Profit {min_potential:.2f}%\n'
+            )
+        print (MarketData)            
 
         #Reset update flags 
-        #MarketData.loc[MarketData['symbol'] == symbol, ['bookTicker']] = 0
-        #MarketData.loc[MarketData['symbol'] == symbol, ['aggTrade']] = 0
-        #MarketData.loc[MarketData['symbol'] == symbol, ['kline']] = 0 
-    #else:
-        #print("updates:" + MarketData.loc[MarketData['symbol'] == symbol, ['bookTicker']] + ":" +  MarketData.loc[MarketData['symbol'] == symbol, ['aggTrade']] + ":" + MarketData.loc[MarketData['symbol'] == symbol, ['kline']])
+        MarketData.loc[Index, ['bookTicker']] = False
+        MarketData.loc[Index, ['aggTrade']] = False
+        MarketData.loc[Index, ['kline']] = False
+
+        if DEBUG : print (MarketData)            
+        
  
 
 ########################################################################
@@ -180,27 +255,39 @@ def do_work():
     
     global MarketData
 
-    
+    SOCKET_URL= "wss://stream.binance.com:9443/ws/"
+    SOCKET_LIST = ["coin@bookTicker","coin@kline_1m","coin@aggTrade"]
+    current_ticker_list = []
+    #-------------------------------------------------------------------------------
+    #Create a dataframe to hold the latest coin data from multiple requests 
     MarketData = pd.DataFrame(columns=['symbol', 'open', 'high', 'low', 'close', 'interval','LastPx','LastQty','BBPx','BBQty','BAPx','BAQty','kline','aggTrade','bookTicker','updated'])
     MarketData['symbol']=MarketData.index
     MarketData = MarketData.reset_index(drop=True)
 
+    #-------------------------------------------------------------------------------
     #Define watch list - Should be a loop hardcode for now  
-    #tickers = [line.strip() for line in open(TICKERS_LIST)]
-    data =  {'symbol': 'ETHBTC'}
-    MarketData= MarketData.append(data,ignore_index=True)
-    data =  {'symbol': 'BNBBTC'}
-    MarketData= MarketData.append(data,ignore_index=True)
-    
-    SOCKET_URL= "wss://stream.binance.com:9443/ws/"
-    
-    current_ticker_list = ["ethbtc@bookTicker","bnbbtc@bookTicker","bnbbtc@kline_1m","ethbtc@kline_5m","ethbtc@aggTrade","bnbbtc@aggTrade"]
+    tickers = [line.strip() for line in open(TICKERS_LIST)]
+    for item in tickers:
+        coin = item + PAIR_WITH
+        data =  {'symbol': coin}
+        MarketData= MarketData.append(data,ignore_index=True)
+        coinlist= [sub.replace('coin', coin.lower()) for sub in SOCKET_LIST]
+        current_ticker_list.extend(coinlist)
+
+    if DEBUG:
+        print (MarketData) 
+        print (current_ticker_list) 
+
+    #-------------------------------------------------------------------------------
     SOCKET = SOCKET_URL + '/'.join(current_ticker_list)
     print(SOCKET)
-    ticker_list = websocket.WebSocketApp(SOCKET, on_open=on_open, on_close=on_close, on_message=on_message)
-    print("CTRL+C to cxl and move to next worker")
+    ticker_list = websocket.WebSocketApp(SOCKET, on_open=on_open, on_close=on_close, on_message=on_message, on_error=on_error)
+    print("CTRL+C to cxl")
     ticker_list.run_forever()
+    ticker_list.close()
 
 
 if __name__ == '__main__':
-	do_work()
+    if DEBUG : print ("DEBUG is enabled")
+    
+    do_work()
