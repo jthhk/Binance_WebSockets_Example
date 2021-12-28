@@ -86,20 +86,10 @@ percent_below = 0.6  # change risk level:  0.7 = 70% below high_price, 0.5 = 50%
 #  "MOVEMENT" for original movement calc
 #  "ATR_MOVEMENT" for Average True Range Percentage calc
 MOVEMENT = 'MOVEMENT'
-DROP_CALCULATION = False
 
 # Display Setttings
 all_info = True
 block_info = False
-
-# buy coin file 
-if TEST_MODE:
-    coin_path = 'test_coins_bought.json'
-else:
-    if BVT:
-        coin_path = 'coins_bought.json'
-    else:
-        coin_path = 'live_coins_bought.json'
 
 class TextColors:
 	BUY = '\033[92m'
@@ -128,14 +118,16 @@ def msg_discord(msg):
 #########################################################################
 # Websocket module parameters
 #########################################################################
+# Websocket functions, to inform about current status
 def on_open(ws):
     print("Opened connection.")
+    #print (ws.sock.connected)
 
 def on_close(ws,close_status_code, close_msg):
     print("Closed connection.")
 
 def on_error(ws):
-
+    #getting all the error information
     print ('On_Error')
     print (os.sys.exc_info()[0:2])
     print ('Error info: %s' %(error))
@@ -166,7 +158,7 @@ def on_error(ws):
 
         count = 0
         print ( "Websocket Client trying  to re-connect" ) 
-        InitializeDataFeed()
+        do_work()
 
 
     
@@ -197,9 +189,6 @@ def on_message(ws, message):
             MarketData.loc[Index, ['open']] =  candle["o"]
             MarketData.loc[Index, ['close']] =  candle["c"]
             MarketData.loc[Index, ['kline']] =  True
-
-            #refresh candles
-            get_data_frame(symbol)        
         
     elif eventtype == "aggTrade":
         #is_market_maker = event['x']
@@ -228,8 +217,70 @@ def on_message(ws, message):
     elif eventtype == "error":
         pprint.pprint(event)
 
-         
 
+    if MarketData.loc[Index]['bookTicker']  and MarketData.loc[Index]['aggTrade'] and MarketData.loc[Index]['kline']:
+        #do your strategy check
+        #only trigegrs when we get a full set of data eg int he end of the candle/kline 
+
+        last_price = float(MarketData.loc[Index]['LastPx'])
+        high_price = float(MarketData.loc[Index]['high'])
+        low_price = float(MarketData.loc[Index]['low'])
+        bid_price = float(MarketData.loc[Index]['BBPx'])
+        ask_price = float(MarketData.loc[Index]['BAPx'])
+        range = high_price - low_price
+        potential = (low_price / high_price) * 100
+        buy_above = low_price * 1.00
+        buy_below = high_price - (range * percent_below)
+        current_range = high_price - last_price
+        max_potential = potential * 0.98
+        min_potential = potential * 0.6
+        safe_potential = potential - 12
+        current_potential = ((high_price / last_price) * 100) - 100
+        movement = (low_price / range)
+        macd1m = MarketData.loc[Index, 'open']
+        print(f'{symbol} {current_potential:.2f}% M:{movement:.2f}%')
+
+        print(f'\nCoin:            {symbol}\n'
+            f'Price:            ${last_price:.3f}\n'
+            f'Bid:            ${bid_price:.3f}\n'
+            f'Ask:            ${ask_price:.3f}\n'
+            f'High:             ${high_price:.3f}\n'
+            f'Low:             ${low_price:.3f}\n'
+            f'Day Max Range:    ${range:.3f}\n'
+            f'Current Range:    ${current_range:.3f} \n'
+            f'Daily Range:      ${range:.3f}\n'
+            f'Current Range     ${current_range:.3f} \n'
+            f'Potential profit before safety: {potential:.0f}%\n'
+            f'Buy above:        ${buy_above:.3f}\n'
+            f'Buy Below:        ${buy_below:.3f}\n'
+            f'Potential profit: {TextColors.TURQUOISE}{current_potential:.0f}%{TextColors.DEFAULT}'
+            f'Max Profit:       {max_potential:.2f}%\n'
+            f'Min Profit:       {min_potential:.2f}%\n'
+            f'Last Update:      {datetime.now()}\n'
+            )
+        print (MarketData)            
+        print ("-------MACD--------")
+        macd5m = MarketPriceFrames.loc[Index, '5m']
+        macd15m = MarketPriceFrames.loc[Index, '15m']
+        macd4h = MarketPriceFrames.loc[Index, '4h']
+        macd1d = MarketPriceFrames.loc[Index, '1d']
+        print(f'\nCoin:            {symbol}\n'
+            f'macd1m:             {macd1m}\n'
+            f'macd5m:             {macd5m}\n'
+            f'macd15m:            {macd15m}\n'
+            f'macd4h:             {macd4h}\n'
+            f'macd1d:             {macd1d}\n'
+             )
+        print (MarketPriceFrames)            
+
+        #Reset update flags 
+        MarketData.loc[Index, ['bookTicker']] = False
+        MarketData.loc[Index, ['aggTrade']] = False
+        MarketData.loc[Index, ['kline']] = False
+        MarketData.loc[Index, ['updated']] = datetime.now()
+        if DEBUG : print (MarketData)            
+        
+ 
 
 ########################################################################
 
@@ -248,9 +299,9 @@ def get_data_frame(symbol):
         MarketPriceFrames.loc[Index, ['updated']] = datetime.now()
 
 
-def InitializeDataFeed():
+def do_work():
     
-    global MarketData, MarketPriceFrames, web_socket_app
+    global MarketData, MarketPriceFrames
 
     SOCKET_URL= "wss://stream.binance.com:9443/ws/"
     SOCKET_LIST = ["coin@bookTicker","coin@kline_1m","coin@aggTrade"]
@@ -275,7 +326,56 @@ def InitializeDataFeed():
         data =  {'symbol': coin}
         MarketData= MarketData.append(data,ignore_index=True)
         MarketPriceFrames= MarketPriceFrames.append(data,ignore_index=True)
-        get_data_frame(coin)  
+        get_data_frame(coin)        
+        coinlist= [sub.replace('coin', coin.lower()) for sub in SOCKET_LIST]
+        current_ticker_list.extend(coinlist)
+
+    if DEBUG:
+        print (MarketData) 
+        print (current_ticker_list) 
+        print (MarketPriceFrames) 
+
+    #-------------------------------------------------------------------------------
+    SOCKET = SOCKET_URL + '/'.join(current_ticker_list)
+    print(SOCKET)
+    ticker_list = websocket.WebSocketApp(SOCKET, on_open=on_open, on_close=on_close, on_message=on_message, on_error=on_error)
+    print("CTRL+C to cxl")
+    ticker_list.run_forever()
+    ticker_list.close()
+
+
+if __name__ == '__main__':
+    if DEBUG : print ("DEBUG is enabled")
+    
+    #do_work()
+
+    
+    global MarketData, MarketPriceFrames
+
+    SOCKET_URL= "wss://stream.binance.com:9443/ws/"
+    SOCKET_LIST = ["coin@bookTicker","coin@kline_1m","coin@aggTrade"]
+    current_ticker_list = []
+    #-------------------------------------------------------------------------------
+    #Create a dataframe to hold the latest coin data from multiple requests 
+    MarketData = pd.DataFrame(columns=['symbol', 'open', 'high', 'low', 'close', 'interval','LastPx','LastQty','BBPx','BBQty','BAPx','BAQty','kline','aggTrade','bookTicker','updated'])
+    MarketData['symbol']=MarketData.index
+    MarketData = MarketData.reset_index(drop=True)
+    
+    #Create a dataframe to hold the latest coin data from multiple requests 
+    MarketPriceFrames = pd.DataFrame(columns=['symbol', '5m', '15m', '4h', '1d','updated'])
+    MarketPriceFrames['symbol']=MarketPriceFrames.index
+    MarketPriceFrames = MarketPriceFrames.reset_index(drop=True)
+
+    #-------------------------------------------------------------------------------
+    #Define watch list - Should be a loop hardcode for now  
+    tickers = [line.strip() for line in open(TICKERS_LIST)]
+    for item in tickers:
+        #Create Dataframes with coins
+        coin = item + PAIR_WITH
+        data =  {'symbol': coin}
+        MarketData= MarketData.append(data,ignore_index=True)
+        MarketPriceFrames= MarketPriceFrames.append(data,ignore_index=True)
+        get_data_frame(coin)        
         coinlist= [sub.replace('coin', coin.lower()) for sub in SOCKET_LIST]
         current_ticker_list.extend(coinlist)
 
@@ -300,150 +400,10 @@ def InitializeDataFeed():
     wst.start()
     #-------------------------------------------------------------------------------
 
-
-
-if __name__ == '__main__':
-    
-    if DEBUG : print ("DEBUG is enabled - get ready for lots of data")
-    
-    global MarketData, MarketPriceFrames, web_socket_app
-    exchange = ccxt.binance()
-
-    InitializeDataFeed()
-
     try:
         while True:
-
-            #Get Held coins so we don't but 2 of the same
-            held_coins_list = {}            
-            if os.path.isfile(coin_path) and os.stat(coin_path).st_size != 0:
-                with open(coin_path) as file:
-                    held_coins_list = json.load(file)	
-
-            #Get bitcoinpx for ref 
-            macdbtc = exchange.fetch_ohlcv('BTCUSDT', timeframe='1m', limit=36)
-            dfbtc = pd.DataFrame(macdbtc, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
-            macdbtc = dfbtc.ta.macd(fast=12, slow=26)
-            get_histbtc = macdbtc.iloc[35, 1]
-
-            for index, row in MarketData.iterrows():                         
-                ##################################################################
-                #Get the latest market data 
-                ##################################################################
-                symbol = MarketData.loc[index]['symbol']
-                last_price = float(MarketData.loc[index]['LastPx'])
-                high_price = float(MarketData.loc[index]['high'])
-                low_price = float(MarketData.loc[index]['low'])
-                bid_price = float(MarketData.loc[index]['BBPx'])
-                ask_price = float(MarketData.loc[index]['BAPx'])
-                close_price = float(MarketData.loc[index]['close'])
-
-                #Candle data 
-                iIndex = MarketData.loc[MarketData['symbol'] == symbol].index.item()
-                macd5m = MarketPriceFrames.loc[iIndex, '5m']
-                macd15m = MarketPriceFrames.loc[iIndex, '15m']
-                macd4h = MarketPriceFrames.loc[iIndex, '4h']
-                macd1d = MarketPriceFrames.loc[iIndex, '1d']
-
-                #Standard Strategy Calcs 
-                range = high_price - low_price
-                potential = (low_price / high_price) * 100
-                buy_above = low_price * 1.00
-                buy_below = high_price - (range * percent_below)
-                current_range = high_price - last_price
-                movement = (low_price / range)
-                current_potential = ((high_price / last_price) * 100) - 100
-                macd1m = MarketData.loc[index, 'close']  #using close but some may want to use open
-
-                ##################################################################
-                #Do your custom strategy calcs
-                max_potential = potential * profit_max 
-                min_potential = potential * profit_min
-
-                atr = []               # average true range
-                atr.append(high_price-low_price)
-                atr_percentage = ((sum(atr)/len(atr)) / close_price) * 100
-                ##################################################################
-                #Do your strategy check
-                RealTimeCheck = False
-                TimeFrameCheck = False 
-                TimeFrameOption = False
-                BuyCoin = False
-
-                if DROP_CALCULATION:
-                    current_potential = current_drop
-                
-                #Different models 
-                if MOVEMENT == "MOVEMENT":
-                    TimeFrameOption = (movement >= (TAKE_PROFIT + 0.2))
-                elif MOVEMENT ==  "ATR_MOVEMENT":
-                    TimeFrameOption = (atr_percentage >= TAKE_PROFIT)
-                else:
-                    TimeFrameOption = True
-
-                #Main Strategy checker
-                if TimeFrameOption:
-                    RealTimeCheck = (profit_min < current_potential < profit_max and last_price < buy_below and symbol not in held_coins_list)
-                    if RealTimeCheck:
-                        TimeFrameCheck = (macd1m >= 0 and macd5m  >= 0 and macd15m >= 0 and macd1d >= 0 and get_histbtc >= 0)
-                        if TimeFrameCheck:
-                            BuyCoin = True
-
-
-
-                if DEBUG:
-                    print(f'{TextColors.DEFAULT}{symbol} RealTimecheck:{RealTimeCheck} Timeframecheck:{TimeFrameCheck} TimeFrameOption: {TimeFrameOption} \n')
-
-                ##################################################################
-                #Buy coin check
-                ##################################################################
-                if BuyCoin:
-                    # add to signal
-                    with open(f'signals/snail_scan{signal_file_type}', 'a+') as f:
-                        f.write(str(symbol) + '\n')
-                        print(f'{TextColors.BUY}{symbol} \n')
-
-                ##################################################################
-                #Debug Output
-                ##################################################################
-                if DEBUG:
-                    print(f'\nCoin:            {symbol}\n'
-                        f'Price:            ${last_price:.3f}\n'
-                        f'Bid:            ${bid_price:.3f}\n'
-                        f'Ask:            ${ask_price:.3f}\n'
-                        f'High:             ${high_price:.3f}\n'
-                        f'Low:             ${low_price:.3f}\n'
-                        f'Close:             ${close_price:.3f}\n'
-                        f'Day Max Range:    ${range:.3f}\n'
-                        f'Current Range:    ${current_range:.3f} \n'
-                        f'Daily Range:      ${range:.3f}\n'
-                        f'Current Range     ${current_range:.3f} \n'
-                        f'Potential profit before safety: {potential:.0f}%\n'
-                        f'Buy above:        ${buy_above:.3f}\n'
-                        f'Buy Below:        ${buy_below:.3f}\n'
-                        f'Potential profit: {current_potential:.0f}%'
-                        f'Max Profit:       {max_potential:.2f}%\n'
-                        f'Min Profit:       {min_potential:.2f}%\n'
-                        f'Movement:         {movement:.2f}%\n'
-                        f'Last Update:      {datetime.now()}\n'
-                        )
-                    print (MarketData)            
-                    print ("-------MACD--------")
-                    print(f'\nCoin:            {symbol}\n'
-                        f'macd1m:             {macd1m}\n'
-                        f'macd5m:             {macd5m}\n'
-                        f'macd15m:            {macd15m}\n'
-                        f'macd4h:             {macd4h}\n'
-                        f'macd1d:             {macd1d}\n'
-                        )
-                    print (MarketPriceFrames)            
-                    print ("-------Bitcoin--------")
-                    print (f"get_histbtc:   {get_histbtc}")
-                    
-            time.sleep(3)
-            
-    except Exception as e:
-        print(str(e))
-        web_socket_app.close()
+            print('Going')
+            time.sleep(1)
+            print('Return')
     except KeyboardInterrupt:
         web_socket_app.close()
