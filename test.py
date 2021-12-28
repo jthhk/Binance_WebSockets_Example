@@ -195,9 +195,13 @@ def on_message(ws, message):
         MarketData.loc[Index, ['open']] =  candle["o"]
         MarketData.loc[Index, ['close']] =  candle["c"]
 
-        #fall back as aggTrade may not be in yet
+        #fall back as aggTrade or close may not be in yet
+        if is_nan(MarketData.loc[Index]['close']):
+            MarketData.loc[Index, ['close']] = candle["o"]
+
         if is_nan(MarketData.loc[Index]['LastPx']):
             MarketData.loc[Index, ['LastPx']] = candle["o"]
+
 
         if is_candle_closed:
             #refresh candles
@@ -325,8 +329,6 @@ if __name__ == '__main__':
     #(a) Setup the ticker dataframe and Websockets
     InitializeDataFeed()
 
-    time.sleep(10)
-
     try:
         while True:
 
@@ -345,7 +347,7 @@ if __name__ == '__main__':
             macdbtc = exchange.fetch_ohlcv('BTCUSDT', timeframe='1m', limit=36)
             dfbtc = pd.DataFrame(macdbtc, columns=['time', 'open', 'high', 'low', 'close', 'volume'])
             macdbtc = dfbtc.ta.macd(fast=12, slow=26)
-            get_histbtc = macdbtc.iloc[35, 1]
+            get_histbtc = float(macdbtc.iloc[35, 1])
             
             for index, row in MarketData.iterrows():                         
 
@@ -367,27 +369,27 @@ if __name__ == '__main__':
 
                     #Candle data 
                     iIndex = MarketData.loc[MarketData['symbol'] == symbol].index.item()
-                    macd5m = MarketPriceFrames.loc[iIndex, '5m']
-                    macd15m = MarketPriceFrames.loc[iIndex, '15m']
-                    macd4h = MarketPriceFrames.loc[iIndex, '4h']
-                    macd1d = MarketPriceFrames.loc[iIndex, '1d']
+                    macd5m = float(MarketPriceFrames.loc[iIndex, '5m'])
+                    macd15m = float(MarketPriceFrames.loc[iIndex, '15m'])
+                    macd4h = float(MarketPriceFrames.loc[iIndex, '4h'])
+                    macd1d = float(MarketPriceFrames.loc[iIndex, '1d'])
 
                     #Standard Strategy Calcs 
                     #using last Candle lowpx and highpx 
-                    range = high_price - low_price
-                    potential = (low_price / high_price) * 100
-                    buy_above = low_price * 1.00
-                    buy_below = high_price - (range * percent_below)
-                    max_potential = potential * profit_max 
-                    min_potential = potential * profit_min
+                    range = float(high_price - low_price)
+                    potential = float((low_price / high_price) * 100)
+                    buy_above = float(low_price * 1.00)
+                    buy_below = float(high_price - (range * percent_below))
+                    max_potential = float(potential * profit_max)
+                    min_potential = float(potential * profit_min)
                                         
                     #using last Candle highpx and last trade price, if last trade nan then fall back to lowpx 
-                    current_range = high_price - last_price
-                    current_potential = (last_price / high_price) * 100
-                    current_buy_above = last_price * 1.00
-                    current_buy_below = high_price - (current_range * percent_below)
-                    current_max_potential = current_potential * profit_max 
-                    current_min_potential = current_potential * profit_min
+                    current_range = float(high_price - last_price)
+                    current_potential = float((last_price / high_price) * 100)
+                    current_buy_above = float(last_price * 1.00)
+                    current_buy_below = float(high_price - (current_range * percent_below))
+                    current_max_potential = float(current_potential * profit_max) 
+                    current_min_potential = float(current_potential * profit_min)
 
                     if current_range == 0: 
                         #it is possible to have the samw High/low/last trade resulting in "Cannot divide by zero"
@@ -396,11 +398,12 @@ if __name__ == '__main__':
                         movement = (low_price / current_range)   
 
 
-                    macd1m = MarketData.loc[index, 'close']  #using close of candle but some may want to use open
+                    macd1m = float(MarketData.loc[index, 'open'])  
                     BuyCoin = False
                     #-----------------------------------------------------------------
                     #Do your custom strategy calcs
                     if current_range == 0: 
+                        #it is possible to have the samw current_range=0 resulting in "Cannot divide by zero"
                         current_drop = (100 * (current_range)) / high_price
                     else:
                         current_drop = 0
@@ -410,6 +413,7 @@ if __name__ == '__main__':
                     atr_percentage = ((sum(atr)/len(atr)) / close_price) * 100
                     #-----------------------------------------------------------------
                     #Do your strategy check here
+
                     RealTimeCheck = False
                     TimeFrameCheck = False 
                     TimeFrameOption = False
@@ -429,9 +433,7 @@ if __name__ == '__main__':
                     if TimeFrameOption:
                         RealTimeCheck = (profit_min < current_potential < profit_max and last_price < buy_below)
                         if RealTimeCheck:
-                            #TimeFrameCheck = (macd1m >= 0 and macd5m  >= 0 and macd15m >= 0 and macd1d >= 0 and get_histbtc >= 0)
-                            #TimeFrameCheck = (macd1m >= 0 and macd5m  >= 0 and macd15m >= 0 and macd1d >= 0)
-                            TimeFrameCheck = (profit_min < current_potential < profit_max and last_price < buy_below)
+                            TimeFrameCheck = (macd1m >= 0 and macd5m  >= 0 and macd15m >= 0 and macd1d >= 0 and get_histbtc >= 0)
                             if TimeFrameCheck:
                                 BuyCoin = True
 
@@ -446,7 +448,7 @@ if __name__ == '__main__':
                               f'Data 2 :           {macd1m} | {macd5m} | {macd15m} | {macd1d} |  {get_histbtc} \n'
                               )
 
-                    #Custom logging output for generic debug mode
+                    #Custom logging output for generic debug mode below
                     Custom_Fields = (
                                     "current_drop:        " + str(current_drop) + "\n" 
                                     "atr_percentage:        " + str(atr_percentage)  + "\n" 
@@ -466,7 +468,7 @@ if __name__ == '__main__':
                     #Debug Output
 
                     if DEBUG:
-                        print ("-------DEBUG--------")
+                        print (f'{TextColors.DEFAULT}-------DEBUG--------')
                         print(f'\nCoin:            {symbol}\n'
                             f'Price:               ${last_price:.3f}\n'
                             f'Bid:                 ${bid_price:.3f}\n'
