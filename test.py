@@ -271,6 +271,7 @@ def InitializeDataFeed():
     # (a) Create 2 daat drames one for Current market data (MarketData), second for the historic data (MarketPriceFrames)
     # (b) Define watch list and create a row for every coin 
     # (c) Open Web socket to start collecting market data into the Dataframes  
+    # TO DO: Review: Looking at 3 things - SOCKET_LIST - bookTicker and aggTrade are pretty busy 
     # ######################################    
     global MarketData, MarketPriceFrames, web_socket_app
 
@@ -289,7 +290,7 @@ def InitializeDataFeed():
     MarketPriceFrames = MarketPriceFrames.reset_index(drop=True)
 
     #-------------------------------------------------------------------------------
-    # (b) Define watch list 
+    # (b) Define watch list and add a row for each coin in the two dataframes
     CoinsCounter = 0
     tickers = [line.strip() for line in open(TICKERS_LIST)]
     print( str(datetime.now()) + " :Preparing watch list defined in tickers file...")
@@ -462,7 +463,7 @@ if __name__ == '__main__':
                     #Custom logging output for generic debug mode below
                     Custom_Fields = (
                                     "current_drop:        " + str(current_drop) + "\n" 
-                                    "atr_percentage:        " + str(atr_percentage)  + "\n" 
+                                    "atr_percentage:      " + str(atr_percentage)  + "\n" 
                                     )
 
                     #-----------------------------------------------------------------
