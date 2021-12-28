@@ -300,10 +300,10 @@ def InitializeDataFeed():
         CoinsCounter += 1
 
         #Index dataframes
-	MarketData['symbol']=MarketData.index
-	MarketData = MarketData.reset_index(drop=True)
-	MarketPriceFrames['symbol']=MarketPriceFrames.index
-	MarketPriceFrames = MarketPriceFrames.reset_index(drop=True)
+        MarketData['symbol']=MarketData.index
+        MarketData = MarketData.reset_index(drop=True)
+        MarketPriceFrames['symbol']=MarketPriceFrames.index
+        MarketPriceFrames = MarketPriceFrames.reset_index(drop=True)
 
     print(f'{str(datetime.now())}: Total Coins: {CoinsCounter}')
 
