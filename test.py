@@ -83,7 +83,7 @@ MOVEMENT = 'MOVEMENT'
 DROP_CALCULATION = False
 
 # Display Setttings
-all_info = True
+all_info = False
 block_info = True
 
 # buy coin file 
@@ -202,7 +202,6 @@ def on_message(ws, message):
         if is_nan(MarketData.loc[Index]['LastPx']):
             MarketData.loc[Index, ['LastPx']] = candle["o"]
 
-
         if is_candle_closed:
             #refresh candles
             get_data_frame(symbol)        
@@ -238,9 +237,6 @@ def on_message(ws, message):
         print(json.dumps(pong_json, sort_keys=True, indent=2, separators=(',', ':')))
     elif eventtype == "error":
         pprint.pprint(event)
-
-         
-
 
 #############################END OF WEB SOCKET###########################################
 
@@ -315,7 +311,9 @@ def InitializeDataFeed():
     #-------------------------------------------------------------------------------
     # (c) Create a Web Socket to get the market data 
     SOCKET = SOCKET_URL + '/'.join(current_ticker_list)
-    print( str(datetime.now()) + " :Connecting to WebSocket " + SOCKET + " ...")
+    print( str(datetime.now()) + " :Connecting to WebSocket ...")
+    if DEBUG:
+        print( str(datetime.now()) + " :Connecting to WebSocket " + SOCKET + " ...")
     web_socket_app = websocket.WebSocketApp(SOCKET, header=['User-Agent: Python'],
                                         on_message=on_message,
                                         on_error=on_error,
@@ -450,7 +448,7 @@ if __name__ == '__main__':
                                 BuyCoin = True
 
                     #Custom logging output for the algo
-                    if block_info:
+                    if all_info:
                         print(f'{TextColors.DEFAULT}{symbol} RealTimecheck:{RealTimeCheck} Timeframecheck:{TimeFrameCheck} TimeFrameOption: {TimeFrameOption} \n')
                         print ("-------DEBUG--------")
                         print(f'\nCoin:            {symbol}\n'
@@ -478,7 +476,7 @@ if __name__ == '__main__':
 
                     #-----------------------------------------------------------------
                     #Debug Output
-
+                    #may chnage this to output to a file
                     if DEBUG:
                         print (f'{TextColors.DEFAULT}-------DEBUG--------')
                         print(f'\nCoin:            {symbol}\n'
@@ -533,7 +531,7 @@ if __name__ == '__main__':
         print(str(e))
         print("Error on line {}".format(sys.exc_info()[-1].tb_lineno))
         
-        #only pushing data frm dataframe to help debug 
+        #only pushing data from dataframe to help debug 
         print(f'\nCoin:            {symbol}\n'
             f'Price:            ${last_price:.3f}\n'
             f'Bid:            ${bid_price:.3f}\n'
@@ -541,9 +539,6 @@ if __name__ == '__main__':
             f'High:             ${high_price:.3f}\n'
             f'Low:             ${low_price:.3f}\n'
             f'Close:             ${close_price:.3f}\n'
-            )
-
-        print(f'\nCoin:           {symbol}\n'
             f'macd1m:             {macd1m}\n'
             f'macd5m:             {macd5m}\n'
             f'macd15m:            {macd15m}\n'
