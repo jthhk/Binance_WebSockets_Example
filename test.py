@@ -223,6 +223,14 @@ def on_message(ws, message):
         MarketData.loc[Index, ['BBQty']] =  event["B"]
         MarketData.loc[Index, ['BAPx']] =  event["a"]
         MarketData.loc[Index, ['BAQty']] =  event["A"]
+
+        #fall back as aggTrade or close may not be in yet
+        if is_nan(MarketData.loc[Index]['close']):
+            MarketData.loc[Index, ['close']] = event["a"]
+
+        if is_nan(MarketData.loc[Index]['LastPx']):
+            MarketData.loc[Index, ['LastPx']] = event["a"]
+
     elif eventtype == "Ping":
         pong_json = { 'Type':'Pong' }
         ws.send(json.dumps(pong_json))
@@ -242,6 +250,7 @@ def is_nan(x):
 def get_data_frame(symbol):
     #######################################
     #Get the historic data for each stock and store in a dataframe (MarketPriceFrames)
+    #TO DO: need to move to Web socket - slows the whole thing down if large number of coins
     #######################################
 
     global MarketPriceFrames
@@ -366,6 +375,8 @@ if __name__ == '__main__':
                     bid_price = float(MarketData.loc[index]['BBPx'])
                     ask_price = float(MarketData.loc[index]['BAPx'])
                     close_price = float(MarketData.loc[index]['close'])
+                    current_bid = float(MarketData.loc[index]['BBPx'])
+                    current_ask = float(MarketData.loc[index]['BAPx'])
 
                     #Candle data 
                     iIndex = MarketData.loc[MarketData['symbol'] == symbol].index.item()
@@ -383,7 +394,7 @@ if __name__ == '__main__':
                     max_potential = float(potential * profit_max)
                     min_potential = float(potential * profit_min)
                                         
-                    #using last Candle highpx and last trade price, if last trade nan then fall back to lowpx 
+                    #using last Candle highpx and last trade price, if last trade nan then fall back to lowpx or AskPx
                     current_range = float(high_price - last_price)
                     current_potential = float((last_price / high_price) * 100)
                     current_buy_above = float(last_price * 1.00)
