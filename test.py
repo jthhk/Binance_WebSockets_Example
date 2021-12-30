@@ -42,6 +42,7 @@ DEBUG = parsed_config['script_options']['DEBUG']
 DISCORD_WEBHOOK = load_discord_creds(parsed_creds)
 
 # Load creds for correct environment
+print("Loading access_key....")
 access_key, secret_key = load_correct_creds(parsed_creds)
 client = Client(access_key, secret_key)
 
@@ -69,18 +70,6 @@ else:
 
 # send message to discord
 DISCORD = False
-
-# Strategy Settings
-LIMIT = 4
-INTERVAL = '1d'
-profit_min = 15
-profit_max = 100  # only required if you want to limit max profit
-percent_below = 0.6  # change risk level:  0.7 = 70% below high_price, 0.5 = 50% below high_price
-# movement can be either:
-#  "MOVEMENT" for original movement calc
-#  "ATR_MOVEMENT" for Average True Range Percentage calc
-MOVEMENT = 'MOVEMENT'
-DROP_CALCULATION = False
 
 # Display Setttings
 all_info = False
@@ -124,10 +113,10 @@ def msg_discord(msg):
 def on_open(ws):
     print("Opened connection.")
 
-def on_close(ws,close_status_code, close_msg):
+def on_close(ws, close_status_code, close_msg):
     print("Closed connection.")
 
-def on_error(ws):
+def on_error(ws, error):
     ########################################################
     #Handle disconnects/timeouts and try to reconnect 
     ########################################################
@@ -135,7 +124,7 @@ def on_error(ws):
     print (os.sys.exc_info()[0:2])
     print ('Error info: %s' %(error))
     print(error)
-    TriggerRestart = True
+    TriggerRestart = False
 
     if ( "timed" in str(error) ):
         print ( "WebSocket Connenction is getting timed out: Please check the netwrork connection")
@@ -188,23 +177,31 @@ def on_message(ws, message):
         #Need to check Candle is closed 
         is_candle_closed = candle['x']
         symbol = candle["s"]
-        Index = MarketData.loc[MarketData['symbol'] == symbol].index.item()
-        MarketData.loc[Index, ['interval']] = candle["i"]
-        MarketData.loc[Index, ['high']] = candle["h"]
-        MarketData.loc[Index, ['low']] = candle["l"]
-        MarketData.loc[Index, ['open']] =  candle["o"]
-        MarketData.loc[Index, ['close']] =  candle["c"]
+        interval = candle["i"]
 
-        #fall back as aggTrade or close may not be in yet
-        if is_nan(MarketData.loc[Index]['close']):
-            MarketData.loc[Index, ['close']] = candle["o"]
+        if interval == "1m":
+            #1min/called standard
+            Index = MarketData.loc[MarketData['symbol'] == symbol].index.item()
+            MarketData.loc[Index, ['interval']] = interval
+            MarketData.loc[Index, ['high']] = candle["h"]
+            MarketData.loc[Index, ['low']] = candle["l"]
+            MarketData.loc[Index, ['open']] =  candle["o"]
+            MarketData.loc[Index, ['close']] =  candle["c"]
 
-        if is_nan(MarketData.loc[Index]['LastPx']):
-            MarketData.loc[Index, ['LastPx']] = candle["o"]
+            if is_nan(MarketData.loc[Index]['LastPx']):
+                MarketData.loc[Index, ['LastPx']] = candle["o"]
 
-        if is_candle_closed:
-            #refresh candles
-            get_data_frame(symbol)        
+            if is_candle_closed:
+                MarketData.loc[Index, ['potential']] = (float(candle["l"]) / float(candle["h"])) * 100
+                get_data_frame(symbol)
+            else:
+                MarketData.loc[Index, ['close']] = candle["o"]
+        else:
+            if is_candle_closed:
+                Index = MarketPriceFrames.loc[MarketPriceFrames['symbol'] == symbol].index.item()
+                MarketPriceFrames.loc[Index, interval] =  candle["c"]
+                MarketPriceFrames.loc[Index, ['updated']] = datetime.now()
+
         
     elif eventtype == "aggTrade":
         symbol = event["s"]
@@ -244,10 +241,6 @@ def is_nan(x):
     return (x != x)
 
 def get_data_frame(symbol):
-    #######################################
-    #Get the historic data for each stock and store in a dataframe (MarketPriceFrames)
-    #TO DO: need to move to Web socket - slows the whole thing down if large number of coins
-    #######################################
 
     global MarketPriceFrames
 
@@ -262,28 +255,26 @@ def get_data_frame(symbol):
         MarketPriceFrames.loc[Index, ['updated']] = datetime.now()
 
 
+
 def InitializeDataFeed():
     #######################################
-    # (a) Create 2 daat drames one for Current market data (MarketData), second for the historic data (MarketPriceFrames)
+    # (a) Create 2 Data frames one for Current market data (MarketData), second for the historic data (MarketPriceFrames)
     # (b) Define watch list and create a row for every coin 
     # (c) Open Web socket to start collecting market data into the Dataframes  
     # TO DO: Review: Looking at 3 things - SOCKET_LIST - bookTicker and aggTrade are pretty busy 
     # ######################################    
-    global MarketData, MarketPriceFrames, web_socket_app
+    global MarketData,MarketPriceFrames, web_socket_app
 
     SOCKET_URL= "wss://stream.binance.com:9443/ws/"
     SOCKET_LIST = ["coin@bookTicker","coin@kline_1m","coin@aggTrade"]
     current_ticker_list = []
     #-------------------------------------------------------------------------------
     #(a) Create a dataframe to hold the latest coin data from multiple requests 
-    MarketData = pd.DataFrame(columns=['symbol', 'open', 'high', 'low', 'close', 'interval','LastPx','LastQty','BBPx','BBQty','BAPx','BAQty','updated'])
-    MarketData['symbol']=MarketData.index
-    MarketData = MarketData.reset_index(drop=True)
+    MarketData = pd.DataFrame(columns=['symbol', 'open', 'high', 'low', 'close', 'potential', 'interval','LastPx','LastQty','BBPx','BBQty','BAPx','BAQty','updated'])
+    MarketData.set_index('symbol', inplace=True)
     
-    #Create a dataframe to hold the latest coin data from multiple requests 
     MarketPriceFrames = pd.DataFrame(columns=['symbol', '5m', '15m', '4h', '1d','updated'])
-    MarketPriceFrames['symbol']=MarketPriceFrames.index
-    MarketPriceFrames = MarketPriceFrames.reset_index(drop=True)
+    MarketPriceFrames.set_index('symbol', inplace=True)
 
     #-------------------------------------------------------------------------------
     # (b) Define watch list and add a row for each coin in the two dataframes
@@ -296,7 +287,7 @@ def InitializeDataFeed():
         data =  {'symbol': coin}
         MarketData= MarketData.append(data,ignore_index=True)
         MarketPriceFrames= MarketPriceFrames.append(data,ignore_index=True)
-        get_data_frame(coin)  
+        get_data_frame(coin)  #Needs to move out
         coinlist= [sub.replace('coin', coin.lower()) for sub in SOCKET_LIST]
         current_ticker_list.extend(coinlist)
         CoinsCounter += 1
@@ -306,7 +297,6 @@ def InitializeDataFeed():
     if DEBUG:
         print (MarketData) 
         print (current_ticker_list) 
-        print (MarketPriceFrames) 
 
     #-------------------------------------------------------------------------------
     # (c) Create a Web Socket to get the market data 
@@ -328,6 +318,7 @@ def InitializeDataFeed():
 
 
 if __name__ == '__main__':
+
     
     if DEBUG : print ("DEBUG is enabled - get ready for lots of data, may want to use block_info instead")
     
@@ -345,6 +336,7 @@ if __name__ == '__main__':
             CoinsSkippedCounter = 0 
             CoinsBuyCounter = 0
             Custom_Fields = ""
+            start_time = time.time()
 
             #Get Held coins so we don't but 2 of the same
             if os.path.isfile(coin_path) and os.stat(coin_path).st_size != 0:
@@ -357,9 +349,10 @@ if __name__ == '__main__':
             macdbtc = dfbtc.ta.macd(fast=12, slow=26)
             get_histbtc = float(macdbtc.iloc[35, 1])
             
-            for index, row in MarketData.iterrows():                         
-
-                symbol = MarketData.loc[index]['symbol']
+            #Do the coins with the  most potential
+            MarketData.sort_values('potential', ascending=False)
+            for index, row in enumerate(MarketData.itertuples(), 1):                         
+                symbol = row.symbol
                 CoinsCounter += 1
                 if (symbol in held_coins_list):
                     CoinsSkippedCounter += 1
@@ -367,27 +360,41 @@ if __name__ == '__main__':
                         print(f'{TextColors.DEFAULT}{symbol} Skipping as we already holding \n')
                 else:
                     #-----------------------------------------------------------------
-                    #Get the latest market data 
-                    last_price = float(MarketData.loc[index]['LastPx'])
-                    high_price = float(MarketData.loc[index]['high'])
-                    low_price = float(MarketData.loc[index]['low'])
-                    bid_price = float(MarketData.loc[index]['BBPx'])
-                    ask_price = float(MarketData.loc[index]['BAPx'])
-                    close_price = float(MarketData.loc[index]['close'])
-                    current_bid = float(MarketData.loc[index]['BBPx'])
-                    current_ask = float(MarketData.loc[index]['BAPx'])
+                    # Set your custom Strategy Settings
+                    profit_min = 15
+                    profit_max = 100  # only required if you want to limit max profit
+                    
+                    # change risk level:  0.7 = 70% below high_price, 0.5 = 50% below high_price
+                    percent_below = 0.6  
+                    
+                    # movement can be either:
+                    #  "MOVEMENT" for original movement calc
+                    #  "ATR_MOVEMENT" for Average True Range Percentage calc
+                    MOVEMENT = 'MOVEMENT'
 
+                    #No idea
+                    DROP_CALCULATION = False
+                    #-----------------------------------------------------------------
+                    #Get the latest market data from the dataframes
+                    last_price = float(row.LastPx)
+                    high_price = float(row.high)
+                    low_price = float(row.low)
+                    bid_price = float(row.BBPx)
+                    ask_price = float(row.BAPx)
+                    close_price = float(row.close)
+                    current_bid = float(row.BBPx)
+                    current_ask = float(row.BAPx)
+                    potential = float(row.potential)
                     #Candle data 
-                    iIndex = MarketData.loc[MarketData['symbol'] == symbol].index.item()
-                    macd5m = float(MarketPriceFrames.loc[iIndex, '5m'])
-                    macd15m = float(MarketPriceFrames.loc[iIndex, '15m'])
-                    macd4h = float(MarketPriceFrames.loc[iIndex, '4h'])
-                    macd1d = float(MarketPriceFrames.loc[iIndex, '1d'])
-
+                    TimeFrames = MarketPriceFrames.loc[MarketPriceFrames['symbol'] == symbol]
+                    macd5m = float(TimeFrames['5m'].values[0])
+                    macd15m = float(TimeFrames['15m'].values[0])
+                    macd4h = float(TimeFrames['4h'].values[0])
+                    macd1d = float(TimeFrames['1d'].values[0])
+                    
                     #Standard Strategy Calcs 
                     #using last Candle lowpx and highpx 
                     range = float(high_price - low_price)
-                    potential = float((low_price / high_price) * 100)
                     buy_above = float(low_price * 1.00)
                     buy_below = float(high_price - (range * percent_below))
                     max_potential = float(potential * profit_max)
@@ -407,8 +414,7 @@ if __name__ == '__main__':
                     else:
                         movement = (low_price / current_range)   
 
-
-                    macd1m = float(MarketData.loc[index, 'open'])  
+                    macd1m = float(row.open)  
                     BuyCoin = False
                     #-----------------------------------------------------------------
                     #Do your custom strategy calcs
@@ -423,7 +429,7 @@ if __name__ == '__main__':
                     atr_percentage = ((sum(atr)/len(atr)) / close_price) * 100
                     #-----------------------------------------------------------------
                     #Do your strategy check here
-
+                    #-----------------------------------------------------------------
                     RealTimeCheck = False
                     TimeFrameCheck = False 
                     TimeFrameOption = False
@@ -460,8 +466,8 @@ if __name__ == '__main__':
 
                     #Custom logging output for generic debug mode below
                     Custom_Fields = (
-                                    "current_drop:        " + str(current_drop) + "\n" 
-                                    "atr_percentage:      " + str(atr_percentage)  + "\n" 
+                                    "current_drop:" + str(current_drop) + "|" 
+                                    "atr_percentage:" + str(atr_percentage)  + "\n" 
                                     )
 
                     #-----------------------------------------------------------------
@@ -476,54 +482,52 @@ if __name__ == '__main__':
 
                     #-----------------------------------------------------------------
                     #Debug Output
-                    #may chnage this to output to a file
+                    #may change this to output to a file
                     if DEBUG:
-                        print (f'{TextColors.DEFAULT}-------DEBUG--------')
+                        print (f'{TextColors.DEFAULT}-------DEBUG--------\n')
                         print(f'\nCoin:            {symbol}\n'
-                            f'Price:               ${last_price:.3f}\n'
-                            f'Bid:                 ${bid_price:.3f}\n'
-                            f'Ask:                 ${ask_price:.3f}\n'
-                            f'High:                ${high_price:.3f}\n'
-                            f'Low:                 ${low_price:.3f}\n'
-                            f'Close:               ${close_price:.3f}\n'
-                            f'----------------------------------------------\n'
-                            f'Day Max Range:        ${range:.3f}\n'
-                            f'Buy above:            ${buy_above:.3f}\n'
-                            f'Buy Below:            ${buy_below:.3f}\n'
-                            f'Potential profit:      {potential:.0f}%\n'
-                            f'Potential max profit:  {max_potential:.0f}%\n'
-                            f'Potential min profit:  {min_potential:.0f}%\n'
-                            f'Buy above:            ${buy_above:.3f}\n'
-                            f'Buy Below:            ${buy_below:.3f}\n'
-                            f'----------------------------------------------\n'
-                            f'Day Max Range (lstpx):    ${current_range:.3f}\n'
-                            f'Potential profit(lstpx):  {current_potential:.0f}%\n'
-                            f'Potential max profit:     {current_max_potential:.0f}%\n'
-                            f'Potential min profit:     {current_min_potential:.0f}%\n'
-                            f'Buy above (lstpx):        ${current_buy_above:.3f}\n'
-                            f'Buy Below(lstpx):         ${current_buy_below:.3f}\n'
-                            f'Movement:                 {movement:.2f}%\n'
-                            f'----------------------------------------------\n'
+                            f'\n------------------Market Data---------------\n'
+                            f'Price:{last_price:.3f} |'
+                            f'Bid:{bid_price:.3f} |'
+                            f'Ask:{ask_price:.3f} |'
+                            f'High:{high_price:.3f} |'
+                            f'Low:{low_price:.3f} |'
+                            f'Close:{close_price:.3f}\n'
+                            f'\n-----------------Standard Strategy Calcs---------------\n'
+                            f'Day Max Range:{range:.3f} |'
+                            f'Buy above:{buy_above:.3f} |'
+                            f'Buy Below:{buy_below:.3f} |'
+                            f'Potential profit:{potential:.0f} |'
+                            f'Potential max profit:{max_potential:.0f} |'
+                            f'Potential min profit:{min_potential:.0f}  |n'
+                            f'Buy above:{buy_above:.3f} |'
+                            f'Buy Below:{buy_below:.3f} \n'
+                            f'\n-----------Strategy Calcs based off closed last candle---------\n'
+                            f'Day Max Range (lstpx):{current_range:.3f} |'
+                            f'Potential profit(lstpx):{current_potential:.0f} |'
+                            f'Potential max profit:{current_max_potential:.0f} |'
+                            f'Potential min profit:{current_min_potential:.0f} |'
+                            f'Buy above (lstpx):{current_buy_above:.3f} |'
+                            f'Buy Below(lstpx):{current_buy_below:.3f} |'
+                            f'Movement:{movement:.2f}\n'
+                            f'\n------------Custom calcs-----------------------\n'
                             f'{Custom_Fields}'
                             f'----------------------------------------------\n'
-                            f'Last Update:               {datetime.now()}\n'
+                            f'Last Update:{datetime.now()} \n'
                             )
-                        print (MarketData)            
-                        print ("-------MACD--------")
-                        print(f'\nCoin:           {symbol}\n'
-                            f'macd1m:             {macd1m}\n'
-                            f'macd5m:             {macd5m}\n'
-                            f'macd15m:            {macd15m}\n'
-                            f'macd4h:             {macd4h}\n'
-                            f'macd1d:             {macd1d}\n'
+                        print('\n\n-------MACD--------\n'
+                            f'macd1m:{macd1m} |'
+                            f'macd5m:{macd5m} |'
+                            f'macd15m:{macd15m} |'
+                            f'macd4h:{macd4h} |'
+                            f'macd1d:{macd1d}\n'
                             )
-                        print (MarketPriceFrames)            
-                        print ("-------Bitcoin--------")
+                        print ("\n-------Bitcoin--------")
                         print (f"get_histbtc:   {get_histbtc}")
 
             
             if block_info:
-                print(f'{str(datetime.now())}: Total Coins Scanned: {CoinsCounter} Skipped:{CoinsSkippedCounter} Reviewed:{CoinsCounter - (CoinsSkippedCounter + CoinsBuyCounter)} Bought:{CoinsBuyCounter}')
+                print(f'{str(datetime.now())}:Time(sec): {time.time() - start_time} |Total Coins Scanned: {CoinsCounter} |Skipped:{CoinsSkippedCounter} |Reviewed:{CoinsCounter - (CoinsSkippedCounter + CoinsBuyCounter)} |Bought:{CoinsBuyCounter}')
 
             time.sleep(3)
             
@@ -533,17 +537,12 @@ if __name__ == '__main__':
         
         #only pushing data from dataframe to help debug 
         print(f'\nCoin:            {symbol}\n'
-            f'Price:            ${last_price:.3f}\n'
-            f'Bid:            ${bid_price:.3f}\n'
-            f'Ask:            ${ask_price:.3f}\n'
-            f'High:             ${high_price:.3f}\n'
-            f'Low:             ${low_price:.3f}\n'
-            f'Close:             ${close_price:.3f}\n'
-            f'macd1m:             {macd1m}\n'
-            f'macd5m:             {macd5m}\n'
-            f'macd15m:            {macd15m}\n'
-            f'macd4h:             {macd4h}\n'
-            f'macd1d:             {macd1d}\n'
+            f'Price:               ${last_price:.3f}\n'
+            f'Bid:                 ${bid_price:.3f}\n'
+            f'Ask:                 ${ask_price:.3f}\n'
+            f'High:                ${high_price:.3f}\n'
+            f'Low:                 ${low_price:.3f}\n'
+            f'Close:               ${close_price:.3f}\n'
             )
 
         web_socket_app.close()
