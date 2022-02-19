@@ -3,3 +3,4 @@ jim
 utput
 *.pyc
 creds.yml
+requirements.txt
